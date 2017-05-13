@@ -1,0 +1,119 @@
+#!/bin/bash
+
+# Load config
+. /etc/fai/lxc.conf
+
+if [[ "$1" = "" ]]; then
+    echo Error: Hostname is required!
+    exit
+fi
+
+hostname=$1
+fqdn=$1
+hostname=`echo $hostname | sed 's/\..*//'` # strip off domain if exists
+lxcuser=lxc-$hostname
+lxchome=/home/$lxcuser
+local=$lxchome/$local_subd
+target=$local/$hostname
+config=$lxchome/$config_subd
+
+##############
+# Chown jail #
+##############
+# Get last UID & GID range, and add offset
+uid_start=$((`cut -d: -f2 /etc/subuid | sort | tail -1`+`cut -d: -f3 /etc/subuid | sort | tail -1`))
+gid_start=$((`cut -d: -f2 /etc/subgid | sort | tail -1`+`cut -d: -f3 /etc/subgid | sort | tail -1`))
+
+echo "$lxcuser:$uid_start:$ugid_offset" >> /etc/subuid
+echo "$lxcuser:$gid_start:$ugid_offset" >> /etc/subgid
+
+echo Configuring bridge...
+echo "$lxcuser $net_type $bridge 1" >> $lxcusernet
+
+echo Creating LXC user: $lxcuser...
+adduser --system --shell /bin/sh --disabled-password --gid $lxcgid $lxcuser
+usermod -a $lxcuser -G tty
+
+echo Setting up HOME...
+mkdir -p $local
+mkdir -p $config
+mkdir $lxchome/.ssh
+
+cp /etc/lxc/default.conf $config
+cp /root/.ssh/id_rsa.pub $lxchome/.ssh/authorized_keys
+
+chown -R $lxcuser.$lxcgroup $lxchome
+chmod 700 $lxchome/.ssh/
+chmod 400 $lxchome/.ssh/authorized_keys
+##################
+# Install Chroot #
+##################
+echo Creating $hostname in $target
+$fai -Nu $fqdn dirinstall $target/rootfs
+
+echo Copying SSH Keys...
+mkdir $target/rootfs/root/.ssh
+cp /root/.ssh/id_rsa.pub $target/rootfs/root/.ssh/authorized_keys
+chmod 700 $target/rootfs/root/.ssh
+chmod 600 $target/rootfs/root/.ssh/authorized_keys
+
+#############
+# Configure #
+#############
+echo Writing config file...
+cat <<EOF >$local/$hostname/config
+lxc.utsname = $hostname
+lxc.network.type = $net_type
+lxc.network.flags = up
+lxc.network.link = $bridge
+lxc.network.name = eth0
+
+lxc.rootfs = $target/rootfs
+lxc.id_map = u 0 $uid_start 65536
+lxc.id_map = g 0 $gid_start 65536
+lxc.start.auto = 1
+lxc.pts = 1024
+lxc.kmsg = 0
+lxc.mount.auto = proc:mixed sys:ro
+
+EOF
+
+###################
+# Fix Permissions #
+###################
+chown root.$lxcgroup $local/$hostname/config
+chmod 440 $local/$hostname/config
+
+echo Setting UIDs and GIDs for $target/rootfs...
+
+for olduid in `cut -d: -f3 $target/rootfs/etc/passwd`; do
+    newuid=$(($uid_start+$olduid))
+    find $target/rootfs \! -type l -uid $olduid -print0 | xargs -0 chown $newuid &>/dev/null
+done
+
+for oldgid in `cut -d: -f3 $target/rootfs/etc/group`; do
+    newgid=$(($gid_start+$oldgid))
+    find $target/rootfs \! -type l -gid $oldgid -print0 | xargs -0 chgrp $newgid &>/dev/null
+done
+
+# Work around for: https://gist.github.com/tarruda/2aea9107f04d8b8d8dbf
+startscript=$lxcscripts/$hostname-start
+cat <<EOF >$startscript
+#!/usr/bin/expect
+set timeout 300
+set ssh_session {ssh $lxcuser@localhost -t lxc-autostart}
+spawn {*}\$ssh_session
+expect eof
+EOF
+
+stopscript=$lxcscripts/$hostname-stop
+cat <<EOF >$stopscript
+#!/usr/bin/expect
+set timeout 300
+set ssh_session {ssh $lxcuser@localhost -t lxc-stop -n $hostname}
+spawn {*}\$ssh_session
+expect eof
+EOF
+
+chmod u+x $stopscript
+chmod u+x $startscript

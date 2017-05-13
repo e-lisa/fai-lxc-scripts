@@ -1,0 +1,10 @@
+#!/bin/bash
+
+gawk 'BEGIN{printf("%-12s%10-s%12-s%-6s%s\n", "NAME", "STATE", "IPV4", "IPV6", "AUTOSTART");}'
+echo "-------------------------------------------------"
+for dir in `ls -d /home/*/.local/share/lxc`; do
+    user=`echo $dir | sed 's_/home/\([a-z0-9\-]*\)/.*_\1_'` 
+    
+    lxc-ls -P $dir -f | grep -v '\-\-\-\-\-' | grep -v NAME | gawk '{printf("%-12s%10-s%12-s%-6s%s\n", $1, $2, $3, $4, $5);}' 
+
+done

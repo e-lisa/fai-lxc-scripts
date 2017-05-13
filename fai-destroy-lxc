@@ -1,0 +1,30 @@
+#!/bin/bash
+# Load config
+. /etc/fai/lxc.conf
+
+if [[ "$1" = "" ]]; then
+    echo Error: Hostname is required!
+    exit 1
+fi
+hostname=$1
+
+lxcup-ls | grep $hostname | grep STOPPED &>/dev/null
+if [[ $? -ne 0 ]]; then
+   echo Cannot remove $hostname it is RUNNING, or doesnt exist!!
+   exit 1
+fi
+
+lxcuser=lxc-$hostname
+
+killall -u $lxcuser -9
+
+echo "ARE YOU SURE YOU WANT TO DELETE $hostname AND USER $lxcuser, ctrl+c now to quit!"
+read
+
+sed "/$lxcuser/d" -i /etc/subuid
+sed "/$lxcuser/d" -i /etc/subgid
+sed "/$lxcuser/d" -i /etc/lxc/lxc-usernet
+
+rm $lxcscripts/$hostname-*
+deluser $lxcuser
+rm -rf /home/$lxcuser
