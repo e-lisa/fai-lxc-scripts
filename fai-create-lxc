@@ -21,8 +21,8 @@ config=$lxchome/$config_subd
 # Chown jail #
 ##############
 # Get last UID & GID range, and add offset
-uid_start=$((`cut -d: -f2 /etc/subuid | sort | tail -1`+`cut -d: -f3 /etc/subuid | sort | tail -1`))
-gid_start=$((`cut -d: -f2 /etc/subgid | sort | tail -1`+`cut -d: -f3 /etc/subgid | sort | tail -1`))
+uid_start=$((`cut -d: -f2 /etc/subuid | sort -n | tail -1`+`cut -d: -f3 /etc/subuid | sort -n | tail -1`))
+gid_start=$((`cut -d: -f2 /etc/subgid | sort -n | tail -1`+`cut -d: -f3 /etc/subgid | sort -n | tail -1`))
 
 echo "$lxcuser:$uid_start:$ugid_offset" >> /etc/subuid
 echo "$lxcuser:$gid_start:$ugid_offset" >> /etc/subgid
